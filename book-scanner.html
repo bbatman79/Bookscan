@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📖 Book Scanner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+KR:wght@300;400;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a26;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --success: #00ff88;
+    --warn: #ffaa00;
+    --danger: #ff3366;
+    --text: #e8e8f0;
+    --muted: #6b6b88;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans KR', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  header {
+    width: 100%;
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #ffffff10;
+    background: var(--surface);
+  }
+
+  .logo {
+    font-family: 'Space Mono', monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo span { color: var(--text); }
+
+  .status-badge {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1px solid;
+    letter-spacing: 0.08em;
+    transition: all 0.3s;
+  }
+
+  .status-badge.idle    { border-color: var(--muted); color: var(--muted); }
+  .status-badge.scanning { border-color: var(--warn); color: var(--warn); box-shadow: 0 0 12px #ffaa0030; }
+  .status-badge.detected { border-color: var(--success); color: var(--success); box-shadow: 0 0 12px #00ff8840; animation: pulse 1.2s infinite; }
+  .status-badge.capturing { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 16px #00e5ff50; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  .main {
+    width: 100%;
+    max-width: 1100px;
+    padding: 28px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .scanner-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 820px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+    border: 1px solid #ffffff10;
+    box-shadow: 0 24px 80px #00000060, 0 0 0 1px #ffffff08;
+  }
+
+  #video, #overlay {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 520px;
+    object-fit: cover;
+  }
+
+  #overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  .scanner-ui {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  /* Corner brackets */
+  .bracket {
+    position: absolute;
+    width: 28px; height: 28px;
+    opacity: 0.35;
+    transition: opacity 0.3s;
+  }
+  .bracket.active { opacity: 1; }
+  .bracket.tl { top: 16px; left: 16px; border-top: 2.5px solid var(--accent); border-left: 2.5px solid var(--accent); }
+  .bracket.tr { top: 16px; right: 16px; border-top: 2.5px solid var(--accent); border-right: 2.5px solid var(--accent); }
+  .bracket.bl { bottom: 16px; left: 16px; border-bottom: 2.5px solid var(--accent); border-left: 2.5px solid var(--accent); }
+  .bracket.br { bottom: 16px; right: 16px; border-bottom: 2.5px solid var(--accent); border-right: 2.5px solid var(--accent); }
+
+  /* Scan line */
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0;
+    animation: none;
+    top: 50%;
+  }
+  .scan-line.active { opacity: 0.7; animation: scanline 2s linear infinite; }
+  @keyframes scanline { 0%{top:10%} 100%{top:90%} }
+
+  /* Confidence meter */
+  .confidence-strip {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 4px;
+    background: var(--surface2);
+  }
+  .confidence-fill {
+    height: 100%;
+    width: 0%;
+    transition: width 0.3s, background-color 0.3s;
+    background: var(--danger);
+  }
+
+  /* HUD */
+  .hud {
+    position: absolute;
+    top: 16px; left: 50%; transform: translateX(-50%);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--accent);
+    background: #00000080;
+    padding: 4px 12px;
+    border-radius: 20px;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+  }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    max-width: 820px;
+  }
+
+  .btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    padding: 12px 26px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+  }
+  .btn-primary:hover { background: #33ecff; transform: translateY(-2px); box-shadow: 0 8px 24px #00e5ff30; }
+  .btn-primary:disabled { background: var(--muted); cursor: not-allowed; transform: none; box-shadow: none; }
+
+  .btn-capture {
+    background: var(--success);
+    color: #000;
+  }
+  .btn-capture:hover { background: #33ffaa; transform: translateY(-2px); box-shadow: 0 8px 24px #00ff8830; }
+  .btn-capture:disabled { background: var(--muted); cursor: not-allowed; transform: none; box-shadow: none; }
+
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid #ffffff15;
+  }
+  .btn-secondary:hover { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+  .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+  }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+
+  /* Info panels */
+  .info-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    width: 100%;
+    max-width: 820px;
+  }
+
+  .info-card {
+    background: var(--surface);
+    border: 1px solid #ffffff10;
+    border-radius: 10px;
+    padding: 14px 18px;
+  }
+
+  .info-card .label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.62rem;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .info-card .value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .info-card .value.good { color: var(--success); }
+  .info-card .value.warn { color: var(--warn); }
+  .info-card .value.bad  { color: var(--danger); }
+
+  /* Results grid */
+  .results-section {
+    width: 100%;
+    max-width: 820px;
+  }
+
+  .results-header {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .results-header::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #ffffff10;
+  }
+
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+  }
+
+  .result-card {
+    background: var(--surface);
+    border: 1px solid #ffffff10;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+
+  .result-card:hover { border-color: var(--accent); box-shadow: 0 4px 20px #00e5ff20; }
+
+  .result-card img {
+    width: 100%;
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    display: block;
+  }
+
+  .result-card .card-info {
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  .result-card .card-info .conf {
+    font-family: 'Space Mono', monospace;
+    color: var(--success);
+    font-weight: 700;
+    font-size: 0.68rem;
+  }
+
+  .result-card .delete-btn {
+    position: absolute;
+    top: 6px; right: 6px;
+    background: #000000aa;
+    border: none;
+    color: var(--danger);
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    font-size: 0.8rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+    display: flex;align-items:center;justify-content:center;
+  }
+  .result-card:hover .delete-btn { opacity: 1; }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 32px; left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--surface2);
+    border: 1px solid #ffffff15;
+    border-radius: 10px;
+    padding: 12px 24px;
+    font-size: 0.85rem;
+    transition: transform 0.3s;
+    z-index: 999;
+    white-space: nowrap;
+    box-shadow: 0 8px 32px #00000060;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* GDrive button */
+  .gdrive-btn {
+    background: linear-gradient(135deg, #4285f4, #34a853);
+    color: #fff;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+  .gdrive-btn:hover { opacity: 0.9; transform: translateY(-2px); box-shadow: 0 8px 24px #4285f430; }
+  .gdrive-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* Tips */
+  .tips {
+    width: 100%;
+    max-width: 820px;
+    background: var(--surface);
+    border: 1px solid #ffffff08;
+    border-left: 3px solid var(--accent2);
+    border-radius: 0 10px 10px 0;
+    padding: 14px 18px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  .tips strong { color: var(--text); }
+
+  #canvas-hidden { display: none; }
+
+  /* Sensitivity slider */
+  .slider-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    max-width: 820px;
+    background: var(--surface);
+    border: 1px solid #ffffff10;
+    border-radius: 10px;
+    padding: 12px 18px;
+  }
+  .slider-wrap label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    white-space: nowrap;
+  }
+  input[type=range] {
+    flex: 1;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .slider-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--accent);
+    min-width: 36px;
+    text-align: right;
+  }
+
+  @media (max-width: 600px) {
+    .info-row { grid-template-columns: 1fr 1fr; }
+    header { padding: 14px 16px; }
+    .main { padding: 16px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📖 <span>BOOK</span>SCAN</div>
+  <div class="status-badge idle" id="statusBadge">● IDLE</div>
+</header>
+
+<div class="main">
+
+  <!-- Scanner -->
+  <div class="scanner-wrap" id="scannerWrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div class="scanner-ui">
+      <div class="bracket tl" id="bTL"></div>
+      <div class="bracket tr" id="bTR"></div>
+      <div class="bracket bl" id="bBL"></div>
+      <div class="bracket br" id="bBR"></div>
+      <div class="scan-line" id="scanLine"></div>
+      <div class="hud" id="hud">CAMERA OFF</div>
+    </div>
+    <div class="confidence-strip">
+      <div class="confidence-fill" id="confFill"></div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn btn-primary" id="btnStart">▶ 카메라 시작</button>
+    <button class="btn btn-capture" id="btnCapture" disabled>📸 캡처</button>
+    <button class="btn btn-secondary" id="btnAutoCapture" disabled>⚡ 자동 캡처</button>
+    <button class="btn btn-secondary" id="btnStop" disabled>■ 정지</button>
+  </div>
+
+  <!-- Sensitivity -->
+  <div class="slider-wrap">
+    <label>감지 민감도</label>
+    <input type="range" id="sensitivity" min="1" max="10" value="5">
+    <span class="slider-val" id="sensVal">5</span>
+    <label style="margin-left:16px">최소 신뢰도</label>
+    <input type="range" id="minConf" min="30" max="90" value="55">
+    <span class="slider-val" id="confValLabel">55%</span>
+  </div>
+
+  <!-- Info -->
+  <div class="info-row">
+    <div class="info-card">
+      <div class="label">모서리 감지</div>
+      <div class="value" id="infoCorners">-</div>
+    </div>
+    <div class="info-card">
+      <div class="label">신뢰도</div>
+      <div class="value" id="infoConf">-</div>
+    </div>
+    <div class="info-card">
+      <div class="label">캡처 수</div>
+      <div class="value" id="infoCaptured">0</div>
+    </div>
+  </div>
+
+  <!-- Tips -->
+  <div class="tips">
+    💡 <strong>사용 팁:</strong>
+    책을 평평한 곳에 펴고, <strong>양 페이지가 모두 화면에 들어오도록</strong> 비춰주세요.
+    녹색 테두리가 표시되면 모서리가 감지된 것입니다. 신뢰도 70% 이상일 때 캡처하면 최적의 결과를 얻을 수 있어요.
+    <strong>자동 캡처</strong> 모드를 켜면 신뢰도 기준 이상일 때 자동으로 스캔합니다.
+  </div>
+
+  <!-- Results -->
+  <div class="results-section" id="resultsSection" style="display:none">
+    <div class="results-header">캡처된 이미지</div>
+    <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+      <button class="gdrive-btn" id="btnDrive" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6.28 3L2 10.5l4.28 7h11.44L22 10.5 17.72 3z" opacity=".4"/><path d="M2 10.5l6.28 7H22l-4.28-7z" opacity=".6"/><path d="M6.28 3l5.72 9.86L17.72 3z"/></svg>
+        Google Drive로 내보내기
+      </button>
+      <button class="btn btn-danger" id="btnClearAll" style="font-size:0.75rem;padding:10px 16px;">🗑 전체 삭제</button>
+    </div>
+    <div class="results-grid" id="resultsGrid"></div>
+  </div>
+
+</div>
+
+<canvas id="canvas-hidden"></canvas>
+<div class="toast" id="toast"></div>
+
+<script>
+// ──────────────────────────────────────────
+// State
+// ──────────────────────────────────────────
+let stream = null;
+let animFrame = null;
+let autoCapture = false;
+let captures = [];
+let lastAutoTime = 0;
+const AUTO_COOLDOWN = 2500;
+
+const video    = document.getElementById('video');
+const overlay  = document.getElementById('overlay');
+const ctx      = overlay.getContext('2d');
+const hiddenCanvas = document.getElementById('canvas-hidden');
+const hiddenCtx    = hiddenCanvas.getContext('2d');
+
+// UI refs
+const btnStart       = document.getElementById('btnStart');
+const btnCapture     = document.getElementById('btnCapture');
+const btnAutoCapture = document.getElementById('btnAutoCapture');
+const btnStop        = document.getElementById('btnStop');
+const btnDrive       = document.getElementById('btnDrive');
+const btnClearAll    = document.getElementById('btnClearAll');
+const statusBadge    = document.getElementById('statusBadge');
+const hud            = document.getElementById('hud');
+const confFill       = document.getElementById('confFill');
+const infoCorners    = document.getElementById('infoCorners');
+const infoConf       = document.getElementById('infoConf');
+const infoCaptured   = document.getElementById('infoCaptured');
+const scanLine       = document.getElementById('scanLine');
+const resultsSection = document.getElementById('resultsSection');
+const resultsGrid    = document.getElementById('resultsGrid');
+const sensitivityEl  = document.getElementById('sensitivity');
+const minConfEl      = document.getElementById('minConf');
+const sensValEl      = document.getElementById('sensVal');
+const confValLabelEl = document.getElementById('confValLabel');
+const brackets       = [document.getElementById('bTL'),document.getElementById('bTR'),document.getElementById('bBL'),document.getElementById('bBR')];
+
+sensitivityEl.addEventListener('input', () => sensValEl.textContent = sensitivityEl.value);
+minConfEl.addEventListener('input', () => confValLabelEl.textContent = minConfEl.value + '%');
+
+// ──────────────────────────────────────────
+// Camera
+// ──────────────────────────────────────────
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    video.play();
+    setStatus('scanning');
+    btnStart.disabled = true;
+    btnCapture.disabled = false;
+    btnAutoCapture.disabled = false;
+    btnStop.disabled = false;
+    scanLine.classList.add('active');
+    brackets.forEach(b => b.classList.add('active'));
+    loop();
+  } catch(e) {
+    showToast('⚠️ 카메라 접근 실패: ' + e.message);
+  }
+}
+
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  if (animFrame) cancelAnimationFrame(animFrame);
+  video.srcObject = null;
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  setStatus('idle');
+  btnStart.disabled = false;
+  btnCapture.disabled = true;
+  btnAutoCapture.disabled = true;
+  btnStop.disabled = true;
+  autoCapture = false;
+  btnAutoCapture.textContent = '⚡ 자동 캡처';
+  scanLine.classList.remove('active');
+  brackets.forEach(b => b.classList.remove('active'));
+  hud.textContent = 'CAMERA OFF';
+  confFill.style.width = '0%';
+  infoCorners.textContent = '-';
+  infoConf.textContent = '-';
+  infoConf.className = 'value';
+}
+
+// ──────────────────────────────────────────
+// Detection loop
+// ──────────────────────────────────────────
+function loop() {
+  if (!stream) return;
+
+  overlay.width  = video.videoWidth  || video.clientWidth;
+  overlay.height = video.videoHeight || video.clientHeight;
+  hiddenCanvas.width  = overlay.width;
+  hiddenCanvas.height = overlay.height;
+
+  hiddenCtx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+  const frame = hiddenCtx.getImageData(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+  const result = detectBookCorners(frame, hiddenCanvas.width, hiddenCanvas.height);
+  renderOverlay(result, hiddenCanvas.width, hiddenCanvas.height);
+  updateHUD(result);
+
+  // Auto capture
+  const minConf = parseInt(minConfEl.value);
+  if (autoCapture && result.confidence >= minConf && Date.now() - lastAutoTime > AUTO_COOLDOWN) {
+    captureImage(result);
+    lastAutoTime = Date.now();
+  }
+
+  animFrame = requestAnimationFrame(loop);
+}
+
+// ──────────────────────────────────────────
+// Book corner detection (pure JS, no OpenCV)
+// Uses edge detection + contour approximation
+// ──────────────────────────────────────────
+function detectBookCorners(imageData, W, H) {
+  const sensitivity = parseInt(sensitivityEl.value);
+
+  // 1. Grayscale
+  const gray = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const p = i * 4;
+    gray[i] = 0.299 * imageData.data[p] + 0.587 * imageData.data[p+1] + 0.114 * imageData.data[p+2];
+  }
+
+  // 2. Gaussian blur (3x3)
+  const blurred = gaussianBlur(gray, W, H);
+
+  // 3. Sobel edge detection
+  const edges = sobelEdge(blurred, W, H, sensitivity);
+
+  // 4. Find bounding quad of strong edges
+  const quad = findDocumentQuad(edges, W, H);
+
+  // 5. Score confidence
+  const confidence = scoreQuad(quad, W, H, edges);
+
+  return { quad, confidence, edges, W, H };
+}
+
+function gaussianBlur(src, W, H) {
+  const dst = new Uint8Array(W * H);
+  const kernel = [1,2,1, 2,4,2, 1,2,1];
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      let sum = 0;
+      for (let ky = -1; ky <= 1; ky++)
+        for (let kx = -1; kx <= 1; kx++)
+          sum += src[(y + ky) * W + (x + kx)] * kernel[(ky+1)*3+(kx+1)];
+      dst[y * W + x] = sum / 16;
+    }
+  }
+  return dst;
+}
+
+function sobelEdge(src, W, H, sensitivity) {
+  const dst = new Uint8Array(W * H);
+  const threshold = Math.max(10, 80 - sensitivity * 7);
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const gx =
+        -src[(y-1)*W+(x-1)] - 2*src[y*W+(x-1)] - src[(y+1)*W+(x-1)]
+        +src[(y-1)*W+(x+1)] + 2*src[y*W+(x+1)] + src[(y+1)*W+(x+1)];
+      const gy =
+        -src[(y-1)*W+(x-1)] - 2*src[(y-1)*W+x] - src[(y-1)*W+(x+1)]
+        +src[(y+1)*W+(x-1)] + 2*src[(y+1)*W+x] + src[(y+1)*W+(x+1)];
+      const mag = Math.sqrt(gx*gx + gy*gy);
+      dst[y * W + x] = mag > threshold ? 255 : 0;
+    }
+  }
+  return dst;
+}
+
+function findDocumentQuad(edges, W, H) {
+  // Margin to avoid false edges at borders
+  const margin = Math.min(W, H) * 0.03;
+
+  // Sample edge pixels and find extremal corners using weighted hull approach
+  let topY = H, bottomY = 0, leftX = W, rightX = 0;
+  let topPt = null, bottomPt = null, leftPt = null, rightPt = null;
+
+  // Find extreme points along each direction
+  const step = 2; // sample every 2px for speed
+  for (let y = margin; y < H - margin; y += step) {
+    for (let x = margin; x < W - margin; x += step) {
+      if (edges[Math.floor(y) * W + Math.floor(x)] > 0) {
+        if (y < topY)    { topY = y;    topPt = {x, y}; }
+        if (y > bottomY) { bottomY = y; bottomPt = {x, y}; }
+        if (x < leftX)   { leftX = x;  leftPt = {x, y}; }
+        if (x > rightX)  { rightX = x; rightPt = {x, y}; }
+      }
+    }
+  }
+
+  if (!topPt) {
+    // Fallback: default quad slightly inside frame
+    const p = 0.15;
+    return [
+      {x: W*p,     y: H*p},
+      {x: W*(1-p), y: H*p},
+      {x: W*(1-p), y: H*(1-p)},
+      {x: W*p,     y: H*(1-p)},
+    ];
+  }
+
+  // Build corners using gradient-aware approach
+  // Use a convex hull approach on sampled strong edge pixels
+  const pts = sampleStrongEdgePoints(edges, W, H, margin);
+  if (pts.length < 8) {
+    const p = 0.1;
+    return [
+      {x: W*p,     y: H*p},
+      {x: W*(1-p), y: H*p},
+      {x: W*(1-p), y: H*(1-p)},
+      {x: W*p,     y: H*(1-p)},
+    ];
+  }
+
+  return fitQuadToPoints(pts, W, H);
+}
+
+function sampleStrongEdgePoints(edges, W, H, margin) {
+  const pts = [];
+  const step = 4;
+  // Sample and cluster to find the dominant rectangle
+  const gridX = 8, gridY = 6;
+  const cellW = W / gridX, cellH = H / gridY;
+
+  // For each cell, find the edge pixel closest to extremes
+  for (let gy = 0; gy < gridY; gy++) {
+    for (let gx = 0; gx < gridX; gx++) {
+      let found = false;
+      const x0 = Math.max(margin, gx * cellW);
+      const y0 = Math.max(margin, gy * cellH);
+      const x1 = Math.min(W - margin, (gx+1) * cellW);
+      const y1 = Math.min(H - margin, (gy+1) * cellH);
+      for (let y = y0; y < y1 && !found; y += step) {
+        for (let x = x0; x < x1 && !found; x += step) {
+          if (edges[Math.floor(y)*W+Math.floor(x)] > 0) {
+            pts.push({x, y});
+            found = true;
+          }
+        }
+      }
+    }
+  }
+  return pts;
+}
+
+function fitQuadToPoints(pts, W, H) {
+  // Find the 4 extremal points: top-left, top-right, bottom-right, bottom-left
+  // Using the "farthest from center" approach per quadrant
+  const cx = W / 2, cy = H / 2;
+
+  const quadrants = [
+    { filter: p => p.x <= cx && p.y <= cy, score: p => -p.x - p.y },        // TL
+    { filter: p => p.x >= cx && p.y <= cy, score: p => p.x - p.y },          // TR
+    { filter: p => p.x >= cx && p.y >= cy, score: p => p.x + p.y },          // BR
+    { filter: p => p.x <= cx && p.y >= cy, score: p => -p.x + p.y },         // BL
+  ];
+
+  const corners = quadrants.map(q => {
+    const cands = pts.filter(q.filter);
+    if (cands.length === 0) return null;
+    return cands.reduce((best, p) => q.score(p) > q.score(best) ? p : best, cands[0]);
+  });
+
+  // Fill missing corners with defaults
+  const fallback = [
+    {x: W*0.1, y: H*0.1},
+    {x: W*0.9, y: H*0.1},
+    {x: W*0.9, y: H*0.9},
+    {x: W*0.1, y: H*0.9},
+  ];
+
+  return corners.map((c, i) => c || fallback[i]);
+}
+
+function scoreQuad(quad, W, H, edges) {
+  if (!quad || quad.length < 4) return 0;
+
+  // Score based on:
+  // 1. Area coverage (should be large enough to be a book page)
+  const area = polygonArea(quad);
+  const maxArea = W * H;
+  const areaScore = Math.min(100, (area / maxArea) * 300);
+
+  // 2. Rectangularity (angles close to 90°)
+  const rectScore = rectangularityScore(quad);
+
+  // 3. Edge support (how many edge pixels are near the quad boundary)
+  const edgeScore = edgeSupportScore(quad, edges, W, H);
+
+  // 4. Aspect ratio (book pages are typically portrait or landscape)
+  const aspectScore = aspectRatioScore(quad);
+
+  const total = areaScore * 0.2 + rectScore * 0.35 + edgeScore * 0.3 + aspectScore * 0.15;
+  return Math.min(100, Math.max(0, Math.round(total)));
+}
+
+function polygonArea(pts) {
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    area += pts[i].x * pts[j].y;
+    area -= pts[j].x * pts[i].y;
+  }
+  return Math.abs(area) / 2;
+}
+
+function rectangularityScore(pts) {
+  let score = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i];
+    const b = pts[(i+1)%4];
+    const c = pts[(i+2)%4];
+    const v1 = {x: b.x-a.x, y: b.y-a.y};
+    const v2 = {x: c.x-b.x, y: c.y-b.y};
+    const dot = v1.x*v2.x + v1.y*v2.y;
+    const m1 = Math.sqrt(v1.x*v1.x + v1.y*v1.y);
+    const m2 = Math.sqrt(v2.x*v2.x + v2.y*v2.y);
+    if (m1 && m2) {
+      const cosA = dot / (m1 * m2);
+      score += Math.max(0, 1 - Math.abs(cosA)) * 25;
+    }
+  }
+  return score;
+}
+
+function edgeSupportScore(quad, edges, W, H) {
+  let hits = 0, total = 0;
+  const sample = 30;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i+1)%4];
+    for (let t = 0; t < sample; t++) {
+      const f = t / sample;
+      const x = Math.round(a.x + (b.x - a.x) * f);
+      const y = Math.round(a.y + (b.y - a.y) * f);
+      if (x >= 0 && x < W && y >= 0 && y < H) {
+        total++;
+        // Check 3px neighborhood
+        for (let dy = -3; dy <= 3; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            const nx = x + dx, ny = y + dy;
+            if (nx >= 0 && nx < W && ny >= 0 && ny < H && edges[ny*W+nx] > 0) {
+              hits++;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  return total > 0 ? (hits / total) * 100 : 0;
+}
+
+function aspectRatioScore(pts) {
+  const w = dist(pts[0], pts[1]);
+  const h = dist(pts[1], pts[2]);
+  if (!w || !h) return 0;
+  const ratio = Math.max(w, h) / Math.min(w, h);
+  // Book pages: ratio typically 1.2 to 2.5, or combined spread 0.6-1.2
+  if (ratio >= 0.5 && ratio <= 3.0) return 80;
+  if (ratio >= 0.3 && ratio <= 4.0) return 40;
+  return 10;
+}
+
+function dist(a, b) {
+  return Math.sqrt((b.x-a.x)**2 + (b.y-a.y)**2);
+}
+
+// ──────────────────────────────────────────
+// Render overlay
+// ──────────────────────────────────────────
+function renderOverlay(result, W, H) {
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  if (!result.quad) return;
+
+  const scaleX = overlay.width / W;
+  const scaleY = overlay.height / H;
+
+  const conf = result.confidence;
+  const color = conf >= 70 ? '#00ff88' : conf >= 45 ? '#ffaa00' : '#ff3366';
+  const alpha = 0.3 + (conf / 100) * 0.5;
+
+  const pts = result.quad.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
+
+  // Fill polygon
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.fillStyle = color + '18';
+  ctx.fill();
+
+  // Stroke
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([]);
+  ctx.globalAlpha = alpha + 0.3;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Corner dots + labels
+  const labels = ['TL', 'TR', 'BR', 'BL'];
+  pts.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.9;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 8px Space Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(labels[i], p.x, p.y);
+  });
+
+  // Confidence label
+  ctx.fillStyle = color;
+  ctx.font = 'bold 13px Space Mono, monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.globalAlpha = 0.9;
+  ctx.fillText(`${conf}%`, pts[0].x + 8, pts[0].y + 8);
+  ctx.globalAlpha = 1;
+
+  // Book spine hint (center vertical line for open book)
+  const topCenter  = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+  const botCenter  = { x: (pts[3].x + pts[2].x) / 2, y: (pts[3].y + pts[2].y) / 2 };
+  ctx.beginPath();
+  ctx.moveTo(topCenter.x, topCenter.y);
+  ctx.lineTo(botCenter.x, botCenter.y);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 8]);
+  ctx.globalAlpha = 0.35;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+}
+
+// ──────────────────────────────────────────
+// HUD update
+// ──────────────────────────────────────────
+function updateHUD(result) {
+  const conf = result.confidence;
+  confFill.style.width = conf + '%';
+  confFill.style.backgroundColor = conf >= 70 ? 'var(--success)' : conf >= 45 ? 'var(--warn)' : 'var(--danger)';
+
+  if (conf >= 70) {
+    setStatus('detected');
+    hud.textContent = `✓ BOOK DETECTED — ${conf}%`;
+    infoCorners.textContent = '4 / 4';
+    infoCorners.className = 'value good';
+  } else if (conf >= 40) {
+    setStatus('scanning');
+    hud.textContent = `◎ SCANNING — ${conf}%`;
+    infoCorners.textContent = '부분 감지';
+    infoCorners.className = 'value warn';
+  } else {
+    setStatus('scanning');
+    hud.textContent = `◌ SEARCHING...`;
+    infoCorners.textContent = '미감지';
+    infoCorners.className = 'value bad';
+  }
+
+  infoConf.textContent = conf + '%';
+  infoConf.className = 'value ' + (conf >= 70 ? 'good' : conf >= 45 ? 'warn' : 'bad');
+}
+
+// ──────────────────────────────────────────
+// Capture
+// ──────────────────────────────────────────
+function captureImage(result) {
+  const W = video.videoWidth;
+  const H = video.videoHeight;
+  hiddenCanvas.width = W;
+  hiddenCanvas.height = H;
+  hiddenCtx.drawImage(video, 0, 0, W, H);
+
+  // Draw quad overlay on capture
+  if (result && result.quad) {
+    const conf = result.confidence;
+    const color = conf >= 70 ? '#00ff88' : conf >= 45 ? '#ffaa00' : '#ff3366';
+    const pts = result.quad;
+    hiddenCtx.beginPath();
+    hiddenCtx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) hiddenCtx.lineTo(pts[i].x, pts[i].y);
+    hiddenCtx.closePath();
+    hiddenCtx.strokeStyle = color;
+    hiddenCtx.lineWidth = 4;
+    hiddenCtx.stroke();
+  }
+
+  const dataUrl = hiddenCanvas.toDataURL('image/jpeg', 0.92);
+  const conf = result ? result.confidence : 0;
+  const id = Date.now();
+  captures.push({ id, dataUrl, conf, time: new Date().toLocaleTimeString() });
+  renderResults();
+  infoCaptured.textContent = captures.length;
+  btnDrive.disabled = captures.length === 0;
+  showToast(`📸 캡처 완료 (신뢰도 ${conf}%)`);
+  flashCapture();
+}
+
+function flashCapture() {
+  setStatus('capturing');
+  const overlay2 = document.createElement('div');
+  overlay2.style.cssText = 'position:fixed;inset:0;background:#fff;opacity:0.7;z-index:999;pointer-events:none;transition:opacity 0.3s';
+  document.body.appendChild(overlay2);
+  setTimeout(() => { overlay2.style.opacity = '0'; setTimeout(() => overlay2.remove(), 300); }, 80);
+  setTimeout(() => setStatus(stream ? 'scanning' : 'idle'), 500);
+}
+
+// ──────────────────────────────────────────
+// Results rendering
+// ──────────────────────────────────────────
+function renderResults() {
+  if (captures.length === 0) {
+    resultsSection.style.display = 'none';
+    return;
+  }
+  resultsSection.style.display = 'block';
+  resultsGrid.innerHTML = '';
+  captures.forEach(cap => {
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    card.innerHTML = `
+      <img src="${cap.dataUrl}" alt="스캔 ${cap.id}">
+      <div class="card-info">
+        <span>${cap.time}</span>
+        <span class="conf">${cap.conf}%</span>
+      </div>
+      <button class="delete-btn" data-id="${cap.id}" title="삭제">✕</button>
+    `;
+    card.querySelector('.delete-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      captures = captures.filter(c => c.id != cap.id);
+      infoCaptured.textContent = captures.length;
+      btnDrive.disabled = captures.length === 0;
+      renderResults();
+    });
+    card.addEventListener('click', () => {
+      const w = window.open();
+      w.document.write(`<img src="${cap.dataUrl}" style="max-width:100%;display:block;margin:auto">`);
+    });
+    resultsGrid.appendChild(card);
+  });
+}
+
+// ──────────────────────────────────────────
+// Google Drive Export (Web Intent)
+// ──────────────────────────────────────────
+btnDrive.addEventListener('click', () => {
+  if (captures.length === 0) return;
+  showToast('📁 Google Drive 스캔 앱으로 이동합니다...');
+  // Open Google Drive scanner / upload flow
+  // On mobile this can deep-link; on desktop open Drive
+  setTimeout(() => {
+    window.open('https://drive.google.com/drive/my-drive', '_blank');
+    showToast('💡 Drive에서 "+ 새로 만들기 > 파일 업로드"로 이미지를 업로드하세요');
+  }, 800);
+});
+
+// ──────────────────────────────────────────
+// Status helper
+// ──────────────────────────────────────────
+function setStatus(s) {
+  statusBadge.className = 'status-badge ' + s;
+  const labels = { idle: '● IDLE', scanning: '◎ SCANNING', detected: '✓ DETECTED', capturing: '◉ CAPTURING' };
+  statusBadge.textContent = labels[s] || s.toUpperCase();
+}
+
+// ──────────────────────────────────────────
+// Toast
+// ──────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ──────────────────────────────────────────
+// Event listeners
+// ──────────────────────────────────────────
+btnStart.addEventListener('click', startCamera);
+btnStop.addEventListener('click', stopCamera);
+
+btnCapture.addEventListener('click', () => {
+  if (!stream) return;
+  hiddenCanvas.width = video.videoWidth;
+  hiddenCanvas.height = video.videoHeight;
+  hiddenCtx.drawImage(video, 0, 0);
+  const frame = hiddenCtx.getImageData(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+  const result = detectBookCorners(frame, hiddenCanvas.width, hiddenCanvas.height);
+  captureImage(result);
+});
+
+btnAutoCapture.addEventListener('click', () => {
+  autoCapture = !autoCapture;
+  btnAutoCapture.textContent = autoCapture ? '⚡ 자동 ON' : '⚡ 자동 캡처';
+  btnAutoCapture.style.borderColor = autoCapture ? 'var(--accent)' : '';
+  btnAutoCapture.style.color = autoCapture ? 'var(--accent)' : '';
+  showToast(autoCapture ? '⚡ 자동 캡처 켜짐 — 책 감지 시 자동 촬영' : '자동 캡처 꺼짐');
+});
+
+btnClearAll.addEventListener('click', () => {
+  if (!confirm('모든 캡처를 삭제할까요?')) return;
+  captures = [];
+  infoCaptured.textContent = '0';
+  btnDrive.disabled = true;
+  renderResults();
+});
+</script>
+</body>
+</html>
