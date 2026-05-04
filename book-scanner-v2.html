@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>📖 BookScan</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0a12;
+    color: #e8e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  header {
+    width: 100%;
+    background: #10101c;
+    border-bottom: 1px solid #ffffff15;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo { font-family: monospace; font-size: 17px; font-weight: 700; color: #00e5ff; letter-spacing: 0.1em; }
+  .badge {
+    font-family: monospace; font-size: 11px;
+    padding: 4px 12px; border-radius: 20px;
+    border: 1px solid #555; color: #555;
+    transition: all 0.3s;
+  }
+  .badge.scanning { border-color: #ffaa00; color: #ffaa00; }
+  .badge.detected { border-color: #00ff88; color: #00ff88; animation: blink 1s infinite; }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  .wrap {
+    width: 100%; max-width: 640px;
+    padding: 14px 12px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+
+  .viewer {
+    position: relative;
+    border-radius: 14px; overflow: hidden;
+    background: #000;
+    border: 1px solid #ffffff18;
+    aspect-ratio: 4/3;
+  }
+  #video {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
+  #overlay {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .corner-bracket {
+    position: absolute; width: 26px; height: 26px;
+    transition: border-color 0.3s;
+  }
+  .corner-bracket.tl { top:13px; left:13px; border-top: 2.5px solid #00e5ff88; border-left: 2.5px solid #00e5ff88; }
+  .corner-bracket.tr { top:13px; right:13px; border-top: 2.5px solid #00e5ff88; border-right: 2.5px solid #00e5ff88; }
+  .corner-bracket.bl { bottom:13px; left:13px; border-bottom: 2.5px solid #00e5ff88; border-left: 2.5px solid #00e5ff88; }
+  .corner-bracket.br { bottom:13px; right:13px; border-bottom: 2.5px solid #00e5ff88; border-right: 2.5px solid #00e5ff88; }
+
+  .conf-bar { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; background: #ffffff15; }
+  .conf-fill { height: 100%; width: 0; transition: width 0.2s, background 0.3s; background: #ff4466; }
+
+  .placeholder {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px;
+    background: #00000095;
+  }
+  .placeholder .icon { font-size: 48px; }
+  .placeholder .text { font-family: monospace; font-size: 13px; color: #888; letter-spacing: 0.06em; }
+
+  .loading-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: #00000095;
+  }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid #ffffff20;
+    border-top-color: #00e5ff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-family: monospace; font-size: 12px; color: #888; letter-spacing: 0.1em; }
+
+  .stats {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
+  }
+  .stat {
+    background: #12121e; border: 1px solid #ffffff10;
+    border-radius: 10px; padding: 10px 12px; text-align: center;
+  }
+  .stat .lbl { font-family: monospace; font-size: 10px; color: #666; letter-spacing: 0.1em; margin-bottom: 4px; }
+  .stat .val { font-size: 15px; font-weight: 700; }
+
+  .btns { display: flex; gap: 8px; }
+  .btn {
+    flex: 1; padding: 14px; border-radius: 10px;
+    border: none; cursor: pointer;
+    font-weight: 700; font-size: 14px;
+    font-family: monospace; letter-spacing: 0.05em;
+    transition: all 0.15s;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-start  { background: #00e5ff; color: #000; }
+  .btn-capture { background: #00ff88; color: #000; }
+  .btn-auto   { background: #1a1a2e; color: #aaa; border: 1px solid #ffffff20; flex: 0.6; font-size: 12px; }
+  .btn-auto.on { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+  .btn-stop   { background: transparent; color: #ff4466; border: 1px solid #ff446650; flex: 0.4; font-size: 12px; }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+  .sliders {
+    background: #12121e; border: 1px solid #ffffff10;
+    border-radius: 10px; padding: 12px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .slider-row { display: flex; align-items: center; gap: 10px; }
+  .slider-row label { font-family: monospace; font-size: 11px; color: #666; min-width: 68px; }
+  .slider-row input[type=range] { flex: 1; accent-color: #00e5ff; cursor: pointer; }
+  .slider-row .val { font-family: monospace; font-size: 12px; color: #00e5ff; min-width: 28px; text-align: right; }
+
+  .tip {
+    background: #12121e; border-left: 3px solid #7c3aed;
+    border-radius: 0 10px 10px 0;
+    padding: 12px 16px; font-size: 12px; color: #777; line-height: 1.8;
+  }
+  .tip strong { color: #bbb; }
+
+  .results { display: none; }
+  .results.show { display: block; }
+  .results-hdr {
+    font-family: monospace; font-size: 11px; color: #555;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .results-hdr::after { content:''; flex:1; height:1px; background:#ffffff10; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .card {
+    background: #12121e; border: 1px solid #ffffff10;
+    border-radius: 10px; overflow: hidden; position: relative;
+    cursor: pointer;
+  }
+  .card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }
+  .card-info { padding: 6px 10px; display: flex; justify-content: space-between; font-size: 11px; }
+  .card-info .time { color: #555; }
+  .card-info .conf { font-family: monospace; color: #00ff88; font-weight: 700; }
+  .card .del {
+    position: absolute; top: 6px; right: 6px;
+    background: #000000bb; border: none; color: #ff4466;
+    width: 24px; height: 24px; border-radius: 50%;
+    font-size: 12px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .drive-btn {
+    margin-top: 10px; width: 100%; padding: 13px;
+    border-radius: 10px; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #4285f4, #34a853);
+    color: #fff; font-weight: 700; font-size: 14px;
+    font-family: monospace;
+  }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(60px);
+    background: #1e1e30; border: 1px solid #ffffff20;
+    border-radius: 12px; padding: 10px 22px;
+    font-size: 13px; z-index: 999;
+    transition: transform 0.3s; white-space: nowrap;
+    box-shadow: 0 8px 32px #00000080;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  .flash {
+    position: fixed; inset: 0;
+    background: #fff; opacity: 0;
+    pointer-events: none; z-index: 998;
+    transition: opacity 0.15s;
+  }
+  .flash.on { opacity: 0.7; }
+
+  #canvasHidden { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📖 BOOKSCAN</div>
+  <div class="badge" id="badge">● IDLE</div>
+</header>
+
+<div class="wrap">
+  <div class="viewer" id="viewer">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div class="corner-bracket tl"></div>
+    <div class="corner-bracket tr"></div>
+    <div class="corner-bracket bl"></div>
+    <div class="corner-bracket br"></div>
+    <div class="conf-bar"><div class="conf-fill" id="confFill"></div></div>
+    <div class="placeholder" id="placeholder">
+      <div class="icon">📷</div>
+      <div class="text">카메라를 시작하세요</div>
+    </div>
+    <div class="loading-overlay" id="loadingOverlay" style="display:none">
+      <div class="spinner"></div>
+      <div class="loading-text">OpenCV 로딩 중...</div>
+    </div>
+  </div>
+
+  <div class="stats" id="stats" style="display:none">
+    <div class="stat"><div class="lbl">신뢰도</div><div class="val" id="sConf">-</div></div>
+    <div class="stat"><div class="lbl">모서리</div><div class="val" id="sCorner">-</div></div>
+    <div class="stat"><div class="lbl">캡처 수</div><div class="val" id="sCount">0</div></div>
+  </div>
+
+  <div class="btns" id="btns">
+    <button class="btn btn-start" id="btnStart">▶ 카메라 시작</button>
+  </div>
+
+  <div class="sliders">
+    <div class="slider-row">
+      <label>Canny 하한</label>
+      <input type="range" id="sLow" min="10" max="150" value="50">
+      <span class="val" id="sLowVal">50</span>
+    </div>
+    <div class="slider-row">
+      <label>Canny 상한</label>
+      <input type="range" id="sHigh" min="50" max="300" value="150">
+      <span class="val" id="sHighVal">150</span>
+    </div>
+    <div class="slider-row">
+      <label>최소 신뢰도</label>
+      <input type="range" id="sMinConf" min="20" max="90" value="50">
+      <span class="val" id="sMinConfVal">50%</span>
+    </div>
+  </div>
+
+  <div class="tip">
+    💡 책을 평평하게 펼쳐서 <strong>양 페이지가 모두 보이게</strong> 비춰주세요.
+    빛 반사를 피하고, <strong>배경과 대비</strong>가 있을수록 감지가 잘 됩니다.
+    Canny 값을 조절하면 감지 민감도를 바꿀 수 있어요.
+  </div>
+
+  <div class="results" id="results">
+    <div class="results-hdr">
+      캡처된 이미지
+      <button onclick="clearAll()" style="background:transparent;border:1px solid #ff446650;color:#ff4466;padding:3px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-family:monospace;">전체삭제</button>
+    </div>
+    <div class="grid" id="grid"></div>
+    <button class="drive-btn" onclick="openDrive()">☁️ Google Drive로 내보내기</button>
+  </div>
+</div>
+
+<canvas id="canvasHidden"></canvas>
+<div class="toast" id="toast"></div>
+<div class="flash" id="flash"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────
+let cvReady = false;
+let stream = null;
+let rafId = null;
+let autoMode = false;
+let captures = [];
+let lastAutoTime = 0;
+const AUTO_COOLDOWN = 2500;
+
+const video       = document.getElementById('video');
+const overlay     = document.getElementById('overlay');
+const canvasHidden = document.getElementById('canvasHidden');
+const confFill    = document.getElementById('confFill');
+const badge       = document.getElementById('badge');
+const placeholder = document.getElementById('placeholder');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const statsEl     = document.getElementById('stats');
+const btnsEl      = document.getElementById('btns');
+const resultsEl   = document.getElementById('results');
+const grid        = document.getElementById('grid');
+const sConf       = document.getElementById('sConf');
+const sCorner     = document.getElementById('sCorner');
+const sCount      = document.getElementById('sCount');
+
+// sliders
+const sLow     = document.getElementById('sLow');
+const sHigh    = document.getElementById('sHigh');
+const sMinConf = document.getElementById('sMinConf');
+sLow.addEventListener('input',     () => document.getElementById('sLowVal').textContent = sLow.value);
+sHigh.addEventListener('input',    () => document.getElementById('sHighVal').textContent = sHigh.value);
+sMinConf.addEventListener('input', () => document.getElementById('sMinConfVal').textContent = sMinConf.value + '%');
+
+// ── OpenCV.js load ─────────────────────────────────────────────
+function loadOpenCV() {
+  return new Promise((resolve) => {
+    if (window.cv && cv.Mat) { cvReady = true; resolve(); return; }
+    const script = document.createElement('script');
+    script.src = 'https://docs.opencv.org/4.8.0/opencv.js';
+    script.async = true;
+    script.onload = () => {
+      // cv might not be fully ready immediately
+      const check = setInterval(() => {
+        if (window.cv && cv.Mat) {
+          clearInterval(check);
+          cvReady = true;
+          resolve();
+        }
+      }, 100);
+    };
+    script.onerror = () => {
+      // fallback to pure JS detection
+      cvReady = false;
+      resolve();
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// ── Camera ─────────────────────────────────────────────────────
+document.getElementById('btnStart').addEventListener('click', async () => {
+  placeholder.style.display = 'none';
+  loadingOverlay.style.display = 'flex';
+  await loadOpenCV();
+  loadingOverlay.style.display = 'none';
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    video.play();
+
+    statsEl.style.display = 'grid';
+    btnsEl.innerHTML = `
+      <button class="btn btn-capture" id="btnCapture">📸 캡처</button>
+      <button class="btn btn-auto" id="btnAuto">⚡ 자동</button>
+      <button class="btn btn-stop" id="btnStop">■</button>
+    `;
+    document.getElementById('btnCapture').addEventListener('click', doCapture);
+    document.getElementById('btnAuto').addEventListener('click', toggleAuto);
+    document.getElementById('btnStop').addEventListener('click', stopCamera);
+
+    setBadge('scanning');
+    loop();
+  } catch(e) {
+    placeholder.style.display = 'flex';
+    placeholder.querySelector('.text').textContent = '카메라 권한을 허용해주세요';
+    showToast('⚠️ ' + e.message);
+  }
+});
+
+function stopCamera() {
+  stream && stream.getTracks().forEach(t => t.stop());
+  stream = null;
+  rafId && cancelAnimationFrame(rafId);
+  video.srcObject = null;
+  overlay.getContext('2d').clearRect(0,0,overlay.width,overlay.height);
+  setBadge('idle');
+  statsEl.style.display = 'none';
+  placeholder.style.display = 'flex';
+  placeholder.querySelector('.text').textContent = '카메라를 시작하세요';
+  autoMode = false;
+  btnsEl.innerHTML = '<button class="btn btn-start" id="btnStart">▶ 카메라 시작</button>';
+  document.getElementById('btnStart').addEventListener('click', arguments.callee.caller);
+  location.reload(); // simplest way to reset
+}
+
+// ── Detection loop ─────────────────────────────────────────────
+function loop() {
+  if (!stream) return;
+  const W = video.videoWidth, H = video.videoHeight;
+  if (!W || !H) { rafId = requestAnimationFrame(loop); return; }
+
+  overlay.width = W; overlay.height = H;
+  canvasHidden.width = W; canvasHidden.height = H;
+
+  const hctx = canvasHidden.getContext('2d');
+  hctx.drawImage(video, 0, 0, W, H);
+
+  let result;
+  if (cvReady && window.cv && cv.Mat) {
+    result = detectWithOpenCV(W, H);
+  } else {
+    result = detectFallback(hctx.getImageData(0,0,W,H), W, H);
+  }
+
+  drawOverlay(result, W, H);
+  updateStats(result);
+
+  if (autoMode && result.conf >= parseInt(sMinConf.value) && Date.now() - lastAutoTime > AUTO_COOLDOWN) {
+    saveCapture(result);
+    lastAutoTime = Date.now();
+  }
+
+  rafId = requestAnimationFrame(loop);
+}
+
+// ── OpenCV detection ───────────────────────────────────────────
+function detectWithOpenCV(W, H) {
+  let src, gray, blurred, edges, contours, hierarchy;
+  try {
+    src       = cv.imread(canvasHidden);
+    gray      = new cv.Mat();
+    blurred   = new cv.Mat();
+    edges     = new cv.Mat();
+    contours  = new cv.MatVector();
+    hierarchy = new cv.Mat();
+
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+    cv.Canny(blurred, edges, parseInt(sLow.value), parseInt(sHigh.value));
+
+    // Dilate to close gaps
+    const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+    const dilated = new cv.Mat();
+    cv.dilate(edges, dilated, kernel);
+    kernel.delete();
+
+    cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    dilated.delete();
+
+    // Find largest contour that approximates to 4 points
+    let bestQuad = null;
+    let bestArea = 0;
+    const minArea = W * H * 0.05;
+
+    for (let i = 0; i < contours.size(); i++) {
+      const cnt = contours.get(i);
+      const area = cv.contourArea(cnt);
+      if (area < minArea) { cnt.delete(); continue; }
+
+      const peri = cv.arcLength(cnt, true);
+      const approx = new cv.Mat();
+      cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+
+      if (approx.rows === 4 && area > bestArea) {
+        bestArea = area;
+        bestQuad = [];
+        for (let j = 0; j < 4; j++) {
+          bestQuad.push({ x: approx.data32S[j*2], y: approx.data32S[j*2+1] });
+        }
+      }
+      approx.delete();
+      cnt.delete();
+    }
+
+    // Sort corners: TL, TR, BR, BL
+    if (bestQuad) {
+      bestQuad = sortCorners(bestQuad);
+      const conf = calcConfidence(bestQuad, W, H, bestArea);
+      return { quad: bestQuad, conf, method: 'opencv' };
+    }
+
+    return { quad: null, conf: 0, method: 'opencv' };
+
+  } catch(e) {
+    return detectFallback(null, W, H);
+  } finally {
+    src && src.delete();
+    gray && gray.delete();
+    blurred && blurred.delete();
+    edges && edges.delete();
+    contours && contours.delete();
+    hierarchy && hierarchy.delete();
+  }
+}
+
+function sortCorners(pts) {
+  const cx = pts.reduce((s,p) => s+p.x, 0) / 4;
+  const cy = pts.reduce((s,p) => s+p.y, 0) / 4;
+  const tl = pts.filter(p => p.x < cx && p.y < cy)[0];
+  const tr = pts.filter(p => p.x > cx && p.y < cy)[0];
+  const br = pts.filter(p => p.x > cx && p.y > cy)[0];
+  const bl = pts.filter(p => p.x < cx && p.y > cy)[0];
+  if (!tl || !tr || !br || !bl) {
+    // fallback sort by angle
+    const sorted = pts.slice().sort((a,b) => {
+      const aA = Math.atan2(a.y - cy, a.x - cx);
+      const bA = Math.atan2(b.y - cy, b.x - cx);
+      return aA - bA;
+    });
+    // reorder to TL, TR, BR, BL
+    const angles = sorted.map(p => Math.atan2(p.y-cy, p.x-cx) * 180/Math.PI);
+    // find top-left: most negative sum of x-cx, y-cy
+    const tlIdx = pts.reduce((bi, p, i) => (p.x+p.y < pts[bi].x+pts[bi].y ? i : bi), 0);
+    const reordered = [];
+    for (let i = 0; i < 4; i++) reordered.push(pts[(tlIdx+i)%4]);
+    return reordered;
+  }
+  return [tl, tr, br, bl];
+}
+
+function calcConfidence(quad, W, H, area) {
+  const areaRatio = area / (W * H);
+  const areaScore = Math.min(100, areaRatio * 250);
+
+  // rectangularity
+  let rectScore = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i+1)%4], c = quad[(i+2)%4];
+    const v1x = b.x-a.x, v1y = b.y-a.y;
+    const v2x = c.x-b.x, v2y = c.y-b.y;
+    const m1 = Math.hypot(v1x,v1y), m2 = Math.hypot(v2x,v2y);
+    if (m1 && m2) rectScore += Math.max(0, 1 - Math.abs((v1x*v2x+v1y*v2y)/(m1*m2))) * 25;
+  }
+
+  return Math.min(100, Math.max(0, Math.round(areaScore*0.4 + rectScore*0.6)));
+}
+
+// ── Fallback pure JS detection ─────────────────────────────────
+function detectFallback(imageData, W, H) {
+  if (!imageData) {
+    const hctx = canvasHidden.getContext('2d');
+    imageData = hctx.getImageData(0,0,W,H);
+  }
+  const gray = new Uint8Array(W*H);
+  for (let i = 0; i < W*H; i++) {
+    const p = i*4;
+    gray[i] = 0.299*imageData.data[p] + 0.587*imageData.data[p+1] + 0.114*imageData.data[p+2];
+  }
+  // Gaussian blur
+  const blur = new Uint8Array(W*H);
+  for (let y=1;y<H-1;y++) for (let x=1;x<W-1;x++) {
+    let s = gray[(y-1)*W+(x-1)] + 2*gray[(y-1)*W+x] + gray[(y-1)*W+(x+1)]
+          + 2*gray[y*W+(x-1)]   + 4*gray[y*W+x]     + 2*gray[y*W+(x+1)]
+          + gray[(y+1)*W+(x-1)] + 2*gray[(y+1)*W+x] + gray[(y+1)*W+(x+1)];
+    blur[y*W+x] = s >> 4;
+  }
+  const low = parseInt(sLow.value), high = parseInt(sHigh.value);
+  const edges = new Uint8Array(W*H);
+  for (let y=1;y<H-1;y++) for (let x=1;x<W-1;x++) {
+    const gx = -blur[(y-1)*W+(x-1)] - 2*blur[y*W+(x-1)] - blur[(y+1)*W+(x-1)]
+               +blur[(y-1)*W+(x+1)] + 2*blur[y*W+(x+1)] + blur[(y+1)*W+(x+1)];
+    const gy = -blur[(y-1)*W+(x-1)] - 2*blur[(y-1)*W+x] - blur[(y-1)*W+(x+1)]
+               +blur[(y+1)*W+(x-1)] + 2*blur[(y+1)*W+x] + blur[(y+1)*W+(x+1)];
+    const mag = Math.hypot(gx,gy);
+    edges[y*W+x] = mag > high ? 255 : mag > low ? 128 : 0;
+  }
+  // Find quad from edges
+  const margin = Math.min(W,H)*0.05;
+  const qs = [
+    {f:p=>p.x<W/2&&p.y<H/2, s:p=>-p.x-p.y},
+    {f:p=>p.x>W/2&&p.y<H/2, s:p=>p.x-p.y},
+    {f:p=>p.x>W/2&&p.y>H/2, s:p=>p.x+p.y},
+    {f:p=>p.x<W/2&&p.y>H/2, s:p=>-p.x+p.y}
+  ];
+  const pts = [];
+  for (let y=margin;y<H-margin;y+=4) for (let x=margin;x<W-margin;x+=4)
+    if (edges[Math.floor(y)*W+Math.floor(x)] === 255) pts.push({x,y});
+
+  if (pts.length < 8) return { quad: null, conf: 0 };
+
+  const fb = [{x:W*.1,y:H*.1},{x:W*.9,y:H*.1},{x:W*.9,y:H*.9},{x:W*.1,y:H*.9}];
+  const quad = qs.map((q,i) => {
+    const c = pts.filter(q.f);
+    return c.length ? c.reduce((b,p) => q.s(p)>q.s(b)?p:b, c[0]) : fb[i];
+  });
+
+  const area = Math.abs(quad.reduce((s,p,i)=>{const j=(i+1)%4;return s+p.x*quad[j].y-quad[j].x*p.y;},0))/2;
+  const conf = calcConfidence(quad, W, H, area);
+  return { quad, conf, method: 'fallback' };
+}
+
+// ── Draw overlay ───────────────────────────────────────────────
+function drawOverlay(result, W, H) {
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  if (!result.quad) return;
+
+  const quad = result.quad;
+  const conf = result.conf;
+  const color = conf >= 65 ? '#00ff88' : conf >= 40 ? '#ffaa00' : '#ff4466';
+
+  // Fill
+  ctx.beginPath();
+  ctx.moveTo(quad[0].x, quad[0].y);
+  quad.forEach((_, i) => ctx.lineTo(quad[(i+1)%4].x, quad[(i+1)%4].y));
+  ctx.closePath();
+  ctx.fillStyle = color + '20';
+  ctx.fill();
+
+  // Stroke
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(2, W * 0.003);
+  ctx.globalAlpha = 0.9;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Corner circles
+  quad.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(7, W*0.012), 0, Math.PI*2);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  });
+
+  // Book spine
+  const tx = (quad[0].x+quad[1].x)/2, ty = (quad[0].y+quad[1].y)/2;
+  const bx = (quad[3].x+quad[2].x)/2, by = (quad[3].y+quad[2].y)/2;
+  ctx.beginPath(); ctx.moveTo(tx,ty); ctx.lineTo(bx,by);
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+  ctx.setLineDash([6,8]); ctx.globalAlpha = 0.35; ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+  // Confidence text
+  ctx.fillStyle = color;
+  ctx.font = `bold ${Math.round(W*0.042)}px monospace`;
+  ctx.globalAlpha = 0.9;
+  ctx.fillText(conf + '%', quad[0].x + 8, quad[0].y - 10);
+  ctx.globalAlpha = 1;
+}
+
+// ── Update stats ───────────────────────────────────────────────
+function updateStats(result) {
+  const conf = result.conf;
+  const color = conf >= 65 ? '#00ff88' : conf >= 40 ? '#ffaa00' : '#ff4466';
+  confFill.style.width = conf + '%';
+  confFill.style.background = color;
+  sConf.textContent = conf + '%';
+  sConf.style.color = color;
+  sCorner.textContent = result.quad ? (conf>=65?'4/4':'부분') : '미감지';
+  sCorner.style.color = color;
+
+  if (conf >= 65) setBadge('detected');
+  else setBadge('scanning');
+}
+
+function setBadge(state) {
+  badge.className = 'badge ' + state;
+  badge.textContent = state === 'idle' ? '● IDLE' : state === 'scanning' ? '◎ SCANNING' : '✓ DETECTED';
+}
+
+// ── Capture ────────────────────────────────────────────────────
+function doCapture() {
+  if (!stream) return;
+  const W = video.videoWidth, H = video.videoHeight;
+  canvasHidden.width = W; canvasHidden.height = H;
+  const hctx = canvasHidden.getContext('2d');
+  hctx.drawImage(video, 0, 0, W, H);
+
+  let result;
+  if (cvReady && window.cv && cv.Mat) result = detectWithOpenCV(W, H);
+  else {
+    const frame = hctx.getImageData(0,0,W,H);
+    result = detectFallback(frame, W, H);
+  }
+
+  saveCapture(result);
+}
+
+function saveCapture(result) {
+  const dataUrl = canvasHidden.toDataURL('image/jpeg', 0.92);
+  const conf = result ? result.conf : 0;
+  captures.push({ id: Date.now(), dataUrl, conf, time: new Date().toLocaleTimeString() });
+  sCount.textContent = captures.length;
+  renderResults();
+  doFlash();
+  showToast('📸 캡처 완료 — 신뢰도 ' + conf + '%');
+}
+
+function doFlash() {
+  const f = document.getElementById('flash');
+  f.classList.add('on');
+  setTimeout(() => f.classList.remove('on'), 150);
+}
+
+// ── Results ────────────────────────────────────────────────────
+function renderResults() {
+  if (captures.length === 0) { resultsEl.classList.remove('show'); return; }
+  resultsEl.classList.add('show');
+  grid.innerHTML = '';
+  captures.forEach(cap => {
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = `
+      <img src="${cap.dataUrl}" alt="">
+      <div class="card-info">
+        <span class="time">${cap.time}</span>
+        <span class="conf">${cap.conf}%</span>
+      </div>
+      <button class="del" onclick="deleteCapture(${cap.id})">✕</button>
+    `;
+    grid.appendChild(div);
+  });
+}
+
+function deleteCapture(id) {
+  captures = captures.filter(c => c.id !== id);
+  sCount.textContent = captures.length;
+  renderResults();
+}
+
+function clearAll() {
+  if (!confirm('전체 삭제할까요?')) return;
+  captures = [];
+  sCount.textContent = 0;
+  renderResults();
+}
+
+function openDrive() {
+  window.open('https://drive.google.com/drive/my-drive', '_blank');
+  showToast('💡 Drive에서 + 새로 만들기 > 파일 업로드');
+}
+
+// ── Auto capture ───────────────────────────────────────────────
+function toggleAuto() {
+  autoMode = !autoMode;
+  const btn = document.getElementById('btnAuto');
+  btn.classList.toggle('on', autoMode);
+  btn.textContent = autoMode ? '⚡ ON' : '⚡ 자동';
+  showToast(autoMode ? '⚡ 자동 캡처 켜짐' : '자동 캡처 꺼짐');
+}
+
+// ── Toast ──────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+</script>
+</body>
+</html>
